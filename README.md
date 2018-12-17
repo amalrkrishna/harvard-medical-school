@@ -1,4 +1,4 @@
-# Harvard Gene-tissue heat map and gene-correlation network graph.
+# Harvard Gene-tissue heat-map and gene-correlation network-graph.
 
 The source code for this report is split into two folders.
 heat-map - 
