@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang='en-US'>
+<meta charset='utf-8'>
+<head>
+  <link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/font-awesome/4.5.0/css/font-awesome.min.css'>
+  <link rel='stylesheet' href='style.css'>
+  <link rel="icon" href="data:;base64,iVBORw0KGgo=">
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/d3/4.0.0/d3.min.js'></script>
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/6.26.0/babel.min.js'></script>
+  <script src='https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.11/lodash.js'></script>
+  <script src='correlation-graph.js'></script>
+  <script src='draw-pictogram-table.js'></script>
+  <script src='jLouvain.js'></script>
+</head>
+<body>
+  <main class='main'>
+    <div class='main-content'>
+      <div class='graph-container' id='graph'></div>
+    </div>
+    <div class='sidebar'>
+      <div class='table-container'></div>
+      <div class='stats-container'></div>
+    </div>  
+  </main>
+<script>
+
+  /**
+   * The cor_subset csv file is read here.  
+   * First from the original data-set we compute nodes and edges. 
+   * nodes - an array of json objects (500) in the format
+   * {
+   *  "id": <index>
+   *  "name": <gene name>
+   * }
+   * edges - represents edges as an array of json objects in the format
+   * {
+   *  "source": <source index>
+   *  "target": <target index>
+   *  "weight": <weight of the edge, correlation strength in this case>
+   * }
+   */
+  d3.csv("cor_subset.csv", function(data){
+
+    // Generating the nodes list here
+    var nodesList = data.columns.slice(1);
+    var nodes = []
+    var i;
+    for (i = 0; i < nodesList.length; i++) { 
+      var element = {
+        "id" : i,
+        "name" : nodesList[i]
+      }
+      nodes.push(element);  
+    }
+    
+    //forEach function to generate the egdes. Time sensitive tasks are build with forEach functionality.
+    var edges = []
+    data.forEach(function(element, index) {
+      for (i = 0; i < nodesList.length; i++) {
+        // ignores same node edges and duplicate connections
+        if(element[nodesList[i]] != 'NA' && i != nodesList.indexOf(element[""]) && i > nodesList.indexOf(element[""])){
+          var connection = {
+            "source" : i,
+            "target" : nodesList.indexOf(element[""]),
+            "weight" : parseFloat(element[nodesList[i]])
+          }
+          edges.push(connection)
+        }
+      }
+      
+      /**
+       * Edge condition which runs after forEach has completed.
+       * CorrelationGraph function and PictogramTable functionalities are called here.
+       */
+      if(index  === 499) {
+        var data = {
+              "nodes" : nodes,
+              "edges" : edges
+        }
+
+        const correlationGraphProps = {
+          selector: '.graph-container',
+          data,
+          options: { 
+            fixedNodeSize: undefined
+          }
+        }
+      
+      //CorrelationGraph is generated here.
+      window.correlationGraph(correlationGraphProps);
+
+      //The PictogramTable which shows the highly correlated connections are built here.
+      const pictogramTableProps = {
+        selector: '.table-container',
+        data,
+        options: {
+          topN: 48,
+          linksVariable: 'edges',
+          valueVariable: 'weight',
+          sourceVariable: 'source',
+          targetVariable: 'target',
+          valueVariableHeader: 'correlation',
+          sourceVariableLabel: 'sourceName',
+          targetVariableLabel: 'targetName'
+        }
+      }
+      drawPictogramTable(pictogramTableProps);
+      }
+     });
+  });
+</script>
+</body>
+</html>

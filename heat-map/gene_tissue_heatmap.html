@@ -1,0 +1,503 @@
+<meta charset="utf-8">
+<head>
+  <style>
+  /* style file for the gene_tissue_heatmap */
+  svg *::selection {
+     background : transparent;
+  }
+ 
+  svg *::-moz-selection {
+     background:transparent;
+  } 
+ 
+  svg *::-webkit-selection {
+     background:transparent;
+  }
+  rect.selection {
+    stroke          : #333;
+    stroke-dasharray: 4px;
+    stroke-opacity  : 0.5;
+    fill            : transparent;
+  }
+ 
+  rect.cell-border {
+    stroke: #eee;
+    stroke-width:0.3px;   
+  }
+ 
+  rect.cell-selected {
+    stroke: rgb(51,102,153);
+    stroke-width:0.5px;   
+  }
+ 
+  rect.cell-hover {
+    stroke: #F00;
+    stroke-width:0.3px;   
+  }
+ 
+  text.mono {
+    font-size: 9pt;
+    font-family: Consolas, courier;
+    fill: #aaa;
+  }
+ 
+  text.text-selected {
+    fill: #000;
+  }
+ 
+  text.text-highlight {
+    fill: #c00;
+  }
+  text.text-hover {
+    fill: #00C;
+  }
+  #tooltip {
+    position: absolute;
+    width: 200px;
+    height: auto;
+    padding: 10px;
+    background-color: white;
+    -webkit-border-radius: 10px;
+    -moz-border-radius: 10px;
+    border-radius: 10px;
+    -webkit-box-shadow: 4px 4px 10px rgba(0, 0, 0, 0.4);
+    -moz-box-shadow: 4px 4px 10px rgba(0, 0, 0, 0.4);
+    box-shadow: 4px 4px 10px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+  }
+ 
+  #tooltip.hidden {
+    display: none;
+  }
+ 
+  #tooltip p {
+    margin: 0;
+    font-family: sans-serif;
+    font-size: 12px;
+    line-height: 20px;
+  }
+</style>
+</head>
+<div id="tooltip" class="hidden">
+        <p><span id="value"></p>
+</div>
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.js"></script>
+<script src="http://harthur.github.io/clusterfck/demos/colors/clusterfck.js"></script>
+
+Ordering options: 
+  <select id="order">
+  <option value="hclust">by hierarchical clustering</option>
+  <option value="probecontrast">by gene name and tissue name</option>
+  <option value="probe">by gene</option>
+  <option value="contrast">by tissue</option>
+  <option value="custom">by log2 ratio</option>
+  </select>
+  </select>
+
+<div id="chart" style='overflow:auto; width:960px; height:720px;'></div>
+
+<script type="text/javascript">
+
+var margin = { top: 150, right: 10, bottom: 50, left: 100 };
+
+/** 
+ * Reading the test_gene_cell_dataset through d3. 
+ * The the graph is generated with this function.
+*/
+d3.csv("test_gene_cell_dataset.csv",
+  function(d){
+    return(d);
+  },function(error, data) {
+    /**
+     * Clustered data is read here. The hierarchical clustering algorithm is implemented through R.
+     * Reason - It takes too much time to process the huge matrix in the front-end, so that process is separated.
+     */ 
+    d3.csv("clustered_data.csv", function(clustered){
+    
+    var i;
+
+    //Column label of the original data-set
+    var colLabel = ['Test.kidney#2','Test.liver#1','Test.liver#2','Test.lung#1','Test.lung#2','Control.kidney#1','Control.liver#1','Control.liver#2','Control.lung#1','Control.lung#2']; // change to contrast name
+    
+    //Generating the Row Label for the clustered data-set
+    var clusterdRowLabel = []
+    for (i=0;i<clustered.length;i++){
+      clusterdRowLabel.push(clustered[i][""])
+    }
+
+    //Column label for the clustered data-set
+    var clusterdColLabel = ["Test.kidney#2","Control.kidney#1","Control.lung#1",
+    "Test.lung#1","Test.lung#2","Control.lung#2",
+    "Control.liver#1","Test.liver#2","Test.liver#1",
+    "Control.liver#2" ]; 
+
+    /** 
+     * hcrow - Index of each element of rowLabel in clusterdRowLabel.
+     * hccol - Index of each element of colLabel in clusterdColLabel.
+     * 
+     * Basically gives you the index positions the indexes should be transitions when the clustering option is picked.
+     */
+    var hcrow = []
+    var hccol = []
+
+    //Generating the Cloumn label for the clustered data-set
+    for (i=0;i<colLabel.length;i++){
+      hccol.push(colLabel.indexOf(clusterdColLabel[i])+1)
+    }
+
+    /**
+     * cellSize - cell size of the heat map
+     * col_number - number of columns for the heat map
+     * row_number - number of rows for the heat map
+     * width, height - dimension of the heat map
+     * colorBuckets, colors - total number of buckets and colors generated for the heat map
+     */
+    cellSize=12;
+    col_number=10;
+    row_number=5001;
+    width = cellSize*col_number, 
+    height = cellSize*row_number ,
+    colorBuckets = 21,
+    colors = ['#005824','#1A693B','#347B53','#4F8D6B','#699F83','#83B09B','#9EC2B3','#B8D4CB','#D2E6E3','#EDF8FB','#FFFFFF','#F1EEF6','#E6D3E1','#DBB9CD','#D19EB9','#C684A4','#BB6990','#B14F7C','#A63467','#9B1A53','#91003F'];
+
+    var rowLabel = []
+    var gene = [];
+
+    /**
+     * forEach function which reads in each element from the original data set
+     * and generates the rowLabel and gene. 
+     * rowLabel - row names ordered according to the original data set
+     * gene - array of dictionaries in the format (generated from the original data set)
+     * {
+     *  row: <row index>
+     *  column: <column index>
+     *  value: <value>
+     * }
+     */
+    data.forEach(function(element, index) {
+      rowLabel.push(element[""])
+      for (i = 0; i < colLabel.length; i++) {
+        var ind_element = {
+          "row": index+1,
+          "col": i+1,
+          "value": parseFloat(element[colLabel[i]])
+        }
+          gene.push(ind_element)
+      }
+
+
+      /**
+       * Exit condition for the forEach function.
+       * This will be computed after the completion of the forEach function.
+       * All graph compnent generation happens here.
+       */
+      if(index  === 4999) {
+
+        //Finding the index of each element of rowLabel in clusterdRowLabel.
+        for (i=0;i<rowLabel.length;i++){
+          hcrow.push(rowLabel.indexOf(clusterdRowLabel[i])+1)
+        }
+
+        /**
+         * Setting up colorScale and svg compononents for the heat map.
+         * This uses the already defined variables colors, width, height and margin.
+         */
+        var colorScale = d3.scale.quantile()
+            .domain([ -100 , 0, 100])
+            .range(colors);
+        
+        var svg = d3.select("#chart").append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+            ;
+
+        var rowSortOrder=false;
+        var colSortOrder=false;
+
+        /**
+         * Generating row and coloumn svg components for the heat map.
+         * The on-click sorting functionality is called on here, sort by label "r" for rows
+         * and sort by label "c" for columns.
+         */
+        var rowLabels = svg.append("g")
+            .selectAll(".rowLabelg")
+            .data(rowLabel)
+            .enter()
+            .append("text")
+            .text(function (d) { return d; })
+            .attr("x", 0)
+            .attr("y", function (d, i) { return hcrow.indexOf(i+1) * cellSize; })
+            .style("text-anchor", "end")
+            .attr("transform", "translate(-6," + cellSize / 1.5 + ")")
+            .attr("class", function (d,i) { return "rowLabel mono r"+i;} ) 
+            .on("mouseover", function(d) {d3.select(this).classed("text-hover",true);})
+            .on("mouseout" , function(d) {d3.select(this).classed("text-hover",false);})
+            .on("click", function(d,i) {rowSortOrder=!rowSortOrder; sortbylabel("r",i,rowSortOrder);d3.select("#order").property("selectedIndex", 4).node().focus();;})
+            ;
+
+        var colLabels = svg.append("g")
+            .selectAll(".colLabelg")
+            .data(colLabel)
+            .enter()
+            .append("text")
+            .text(function (d) { return d; })
+            .attr("x", 0)
+            .attr("y", function (d, i) { return hccol.indexOf(i+1) * cellSize; })
+            .style("text-anchor", "left")
+            .attr("transform", "translate("+cellSize/2 + ",-6) rotate (-90)")
+            .attr("class",  function (d,i) { return "colLabel mono c"+i;} )
+            .on("mouseover", function(d) {d3.select(this).classed("text-hover",true);})
+            .on("mouseout" , function(d) {d3.select(this).classed("text-hover",false);})
+            .on("click", function(d,i) {colSortOrder=!colSortOrder;  sortbylabel("c",i,colSortOrder);d3.select("#order").property("selectedIndex", 4).node().focus();;})
+            ;
+        
+        /**
+         * The heat map svg component is generated here. Attributes like hccol, hcrow, cellSize and values
+         * are passed here. 
+         * Mouse over selection is done here which gives the user the ability to select cells.
+         * The mouse hover popup for each cell is also defined here using #tooltip.
+         */
+        var heatMap = svg.append("g").attr("class","g3")
+              .selectAll(".cellg")
+              .data(gene,function(d){return d.row+":"+d.col;})
+              .enter()
+              .append("rect")
+              .attr("x", function(d) { return hccol.indexOf(d.col) * cellSize; })
+              .attr("y", function(d) { return hcrow.indexOf(d.row) * cellSize; })
+              .attr("class", function(d){return "cell cell-border cr"+(d.row-1)+" cc"+(d.col-1);})
+              .attr("width", cellSize)
+              .attr("height", cellSize)
+              .style("fill", function(d) { return colorScale(d.value); })
+
+              .on("mouseover", function(d){
+                    //highlight text
+                    d3.select(this).classed("cell-hover",true);
+                    d3.selectAll(".rowLabel").classed("text-highlight",function(r,ri){ return ri==(d.row-1);});
+                    d3.selectAll(".colLabel").classed("text-highlight",function(c,ci){ return ci==(d.col-1);});
+              
+                    //Update the tooltip position and value
+                    d3.select("#tooltip")
+                      .style("left", (d3.event.pageX+10) + "px")
+                      .style("top", (d3.event.pageY-10) + "px")
+                      .select("#value")
+                      .text("gene:"+rowLabel[d.row-1]+"\ntissue:"+colLabel[d.col-1]+"\nvalue:"+d.value+"\n"+"\nrow-col-idx:"+d.col+","+d.row+"\ncell-xy "+this.x.baseVal.value+","+this.y.baseVal.value);  
+                    
+                      //Show the tooltip
+                    d3.select("#tooltip").classed("hidden", false);
+              })
+              .on("mouseout", function(){
+                    d3.select(this).classed("cell-hover",false);
+                    d3.selectAll(".rowLabel").classed("text-highlight",false);
+                    d3.selectAll(".colLabel").classed("text-highlight",false);
+                    d3.select("#tooltip").classed("hidden", true);
+              })
+              ;
+        
+        /**
+         * The sort by row or column functionality is implemented here. Invoked when the
+         * user clicks on the row or column label to sort accending or decending.
+         */
+        function sortbylabel(rORc,i,sortOrder){
+            // Transition time is set at 3000ms
+            var t = svg.transition().duration(3000);
+            var log2r=[];
+            var sorted; // sorted is zero-based index
+            
+            d3.selectAll(".c"+rORc+i) 
+              .filter(function(ce){
+                  log2r.push(ce.value);
+                })
+            ;
+
+            if(rORc=="r"){ // sort log2ratio of a gene/rows
+              sorted=d3.range(col_number).sort(function(a,b){ if(sortOrder){ return log2r[b]-log2r[a];}else{ return log2r[a]-log2r[b];}});
+              t.selectAll(".cell")
+                .attr("x", function(d) { return sorted.indexOf(d.col-1) * cellSize; })
+                ;
+              t.selectAll(".colLabel")
+                .attr("y", function (d, i) { return sorted.indexOf(i) * cellSize; })
+              ;
+            }else{ // sort log2ratio of tissues/columns
+              sorted=d3.range(row_number).sort(function(a,b){if(sortOrder){ return log2r[b]-log2r[a];}else{ return log2r[a]-log2r[b];}});
+              t.selectAll(".cell")
+                .attr("y", function(d) { return sorted.indexOf(d.row-1) * cellSize; })
+                ;
+              t.selectAll(".rowLabel")
+                .attr("y", function (d, i) { return sorted.indexOf(i) * cellSize; })
+              ;
+            }
+        }
+
+        /**
+         * Check for change in ordering options is detected here.
+         * i.e if the person changes from one sorting order to another.
+         */
+        d3.select("#order").on("change",function(){
+          order(this.value);
+        });
+        
+        /**
+         * The value of the selected option is passed as argument to the order function.
+         * This function contrains the following options -
+         * hclust - order using the heirarchical clustering rows and columns that was generated earlier
+         * probecontrast - order based on both rows and columns (here genes and tissues)
+         * probe - order based only on rows/genes
+         * contrast - order based only on columns.tissues
+        */
+        function order(value){
+        if(value=="hclust"){
+          var t = svg.transition().duration(3000);
+          t.selectAll(".cell")
+            .attr("x", function(d) { return hccol.indexOf(d.col) * cellSize; })
+            .attr("y", function(d) { return hcrow.indexOf(d.row) * cellSize; })
+            ;
+
+          t.selectAll(".rowLabel")
+            .attr("y", function (d, i) { return hcrow.indexOf(i+1) * cellSize; })
+            ;
+
+          t.selectAll(".colLabel")
+            .attr("y", function (d, i) { return hccol.indexOf(i+1) * cellSize; })
+            ;
+
+        }else if (value=="probecontrast"){
+          var t = svg.transition().duration(3000);
+          t.selectAll(".cell")
+            .attr("x", function(d) { return (d.col - 1) * cellSize; })
+            .attr("y", function(d) { return (d.row - 1) * cellSize; })
+            ;
+
+          t.selectAll(".rowLabel")
+            .attr("y", function (d, i) { return i * cellSize; })
+            ;
+
+          t.selectAll(".colLabel")
+            .attr("y", function (d, i) { return i * cellSize; })
+            ;
+
+        }else if (value=="probe"){
+          var t = svg.transition().duration(3000);
+          t.selectAll(".cell")
+            .attr("y", function(d) { return (d.row - 1) * cellSize; })
+            ;
+
+          t.selectAll(".rowLabel")
+            .attr("y", function (d, i) { return i * cellSize; })
+            ;
+        }else if (value=="contrast"){
+          var t = svg.transition().duration(3000);
+          t.selectAll(".cell")
+            .attr("x", function(d) { return (d.col - 1) * cellSize; })
+            ;
+          t.selectAll(".colLabel")
+            .attr("y", function (d, i) { return i * cellSize; })
+            ;
+        }
+        }
+        
+        var sa=d3.select(".g3")
+            .on("mousedown", function() {
+                if( !d3.event.altKey) {
+                  d3.selectAll(".cell-selected").classed("cell-selected",false);
+                  d3.selectAll(".rowLabel").classed("text-selected",false);
+                  d3.selectAll(".colLabel").classed("text-selected",false);
+                }
+              var p = d3.mouse(this);
+              sa.append("rect")
+              .attr({
+                  rx      : 0,
+                  ry      : 0,
+                  class   : "selection",
+                  x       : p[0],
+                  y       : p[1],
+                  width   : 1,
+                  height  : 1
+              })
+            })
+            .on("mousemove", function() {
+              var s = sa.select("rect.selection");
+            
+              if(!s.empty()) {
+                  var p = d3.mouse(this),
+                      d = {
+                          x       : parseInt(s.attr("x"), 10),
+                          y       : parseInt(s.attr("y"), 10),
+                          width   : parseInt(s.attr("width"), 10),
+                          height  : parseInt(s.attr("height"), 10)
+                      },
+                      move = {
+                          x : p[0] - d.x,
+                          y : p[1] - d.y
+                      }
+                  ;
+            
+                  if(move.x < 1 || (move.x*2<d.width)) {
+                      d.x = p[0];
+                      d.width -= move.x;
+                  } else {
+                      d.width = move.x;       
+                  }
+            
+                  if(move.y < 1 || (move.y*2<d.height)) {
+                      d.y = p[1];
+                      d.height -= move.y;
+                  } else {
+                      d.height = move.y;       
+                  }
+                  s.attr(d);
+            
+                  // deselect all temporary selected state objects
+                  d3.selectAll('.cell-selection.cell-selected').classed("cell-selected", false);
+                  d3.selectAll(".text-selection.text-selected").classed("text-selected",false);
+
+                  d3.selectAll('.cell').filter(function(cell_d, i) {
+                      if(
+                          !d3.select(this).classed("cell-selected") && 
+                          // inner circle inside selection frame
+                          (this.x.baseVal.value)+cellSize >= d.x && (this.x.baseVal.value)<=d.x+d.width && 
+                          (this.y.baseVal.value)+cellSize >= d.y && (this.y.baseVal.value)<=d.y+d.height
+                      ) {
+            
+                          d3.select(this)
+                          .classed("cell-selection", true)
+                          .classed("cell-selected", true);
+
+                          d3.select(".r"+(cell_d.row-1))
+                          .classed("text-selection",true)
+                          .classed("text-selected",true);
+
+                          d3.select(".c"+(cell_d.col-1))
+                          .classed("text-selection",true)
+                          .classed("text-selected",true);
+                      }
+                  });
+              }
+            })
+            .on("mouseup", function() {
+              // remove selection frame
+              sa.selectAll("rect.selection").remove();
+            
+              // remove temporary selection marker class
+              d3.selectAll('.cell-selection').classed("cell-selection", false);
+              d3.selectAll(".text-selection").classed("text-selection",false);
+            })
+            .on("mouseout", function() {
+              if(d3.event.relatedTarget.tagName=='html') {
+                  // remove selection frame
+                  sa.selectAll("rect.selection").remove();
+                  // remove temporary selection marker class
+                  d3.selectAll('.cell-selection').classed("cell-selection", false);
+                  d3.selectAll(".rowLabel").classed("text-selected",false);
+                  d3.selectAll(".colLabel").classed("text-selected",false);
+              }
+            })
+      ;
+      }
+    });
+    });
+  }
+);
+</script>
